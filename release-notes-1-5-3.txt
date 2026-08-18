@@ -1,0 +1,38 @@
+## SmoothSkin v1.5.3
+
+First public release. SmoothSkin is an OBS Studio filter for automatic face and skin smoothing, built as a more modern alternative to color-picker-based tools like DeBlemish.
+
+### Why this exists
+
+Filters that use manual color-pickers require you to sample a skin tone once and hope it holds. They tend to catch ears, neck, hands, and skin-colored background along with the face, and drift as lighting changes through a stream. SmoothSkin detects skin automatically and keeps recalibrating itself while you're on camera.
+
+### Core features
+
+**No color picker.** Skin is detected in YCbCr chroma space, where human skin tones across a wide range cluster in a predictable region regardless of overall brightness. This makes detection far more robust to lighting changes than a picked RGB or HSV color.
+
+**Self-calibrating sample box.** Instead of a one-time color pick, you position a small box over your face in the filter settings. Every frame, the shader reads the skin tone from inside that box using a spatially-weighted, outlier-rejecting estimate, so contrast features that briefly cross the box (eyebrows, eyes, a headset, hair) don't drag the detected tone off course. The mask follows you as lighting shifts through a session.
+
+**Background rejection.** A saturation gate excludes neutral, low-chroma pixels (walls, desks, most backgrounds) from ever being classified as skin, independent of the sample box.
+
+**Edge-preserving smoothing.** Uses a bilateral filter rather than a plain blur, so blemishes and texture are smoothed while eyes, eyebrows, lips, and the hairline stay sharp instead of turning to mush.
+
+**Mask tightness.** A single primary control scales the whole detection envelope, so day-to-day tuning is usually one slider rather than several.
+
+**Setup mode with visual guides.** Turning on the mask preview shows exactly what's detected (white) versus ignored (black), overlays the sample box position, and shows crop guides with a red tint over any region you've excluded, so tuning is fully visual with no guesswork about what a slider is doing.
+
+**Region limits.** Optional crop sliders exclude parts of the frame (skin-colored furniture, walls) from detection entirely, for cases the chroma model can't distinguish on its own.
+
+### Performance
+
+- The detection estimator only runs on pixels that pass a cheap background/luma pre-check first, so most non-skin pixels in a typical frame skip the expensive per-pixel calibration work entirely.
+- Verified bit-identical mask output against the prior implementation across a wide range of detection settings.
+
+### Known limitations
+
+- Detection relies on skin appearing as a consistent, distinguishable color region against the background; some lighting and setup conditions may reduce accuracy. A fundamentally different (ML-based) detection approach would be needed for full robustness across all conditions.
+- Skin-colored non-skin objects in frame (wood furniture, certain fabrics) can still register as skin; use region limits to exclude them.
+- Fine lines and very shallow texture are intentionally preserved by the edge-preserving smoother rather than erased.
+
+### Compatibility
+
+OBS Studio, Lua scripting. Install via Tools > Scripts, then add "SmoothSkin v1.5.3" as a filter on any video source.
