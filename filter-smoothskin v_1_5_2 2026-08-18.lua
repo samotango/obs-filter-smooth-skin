@@ -131,7 +131,7 @@
 
 obs = obslua
 
-VERSION = '1.5.1'
+VERSION = '1.5.2'
 
 SETTING_AMOUNT      = 'Amount'
 SETTING_SIZE        = 'Size'
@@ -181,7 +181,7 @@ TEXT_GROUP_DETECT  = 'Detection'
 TEXT_GROUP_REGION  = 'Region limit (crop inward from each edge)'
 
 source_info = {}
-source_info.id = 'filter-smoothskin'
+source_info.id = 'filter-smoothskin-v1-5-2'
 source_info.type = obs.OBS_SOURCE_TYPE_FILTER
 source_info.output_flags = obs.OBS_SOURCE_VIDEO
 

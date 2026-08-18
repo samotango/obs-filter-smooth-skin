@@ -1,72 +1,33 @@
 -- SmoothSkin: automatic skin smoothing filter for OBS Studio
 --
 -- VERSION HISTORY
--- v1.7.1 (2026-08-17)
---   Performance only. Output is bit-identical to v1.7.0; no control,
---   default or tuning constant changed.
+-- v1.5.3 (2026-08-18)
+--   Performance only. Output is identical to v1.5.2; no control,
+--   default or tuning constant changed, and no new features from the
+--   1.6/1.7 line are included.
 --   * Early rejection before the sample box estimator. The saturation
 --     gate and luma limits never reference the sampled skin-tone
 --     center, so a pixel failing them is non-skin whatever the box
---     reports. They are now evaluated first, and the live path returns
+--     reports. They now run first, and the live path returns
 --     immediately on failure, skipping the estimator entirely (25
 --     texture samples and 100 exponentials per pixel). Most of a
---     typical frame is background, hair or clothing, so most pixels no
---     longer pay for the estimator at all. Setup mode deliberately
+--     typical webcam frame is background, hair or clothing, so most
+--     pixels no longer pay for the estimator. Setup mode deliberately
 --     keeps going so crop guides and the box outline still draw over
 --     rejected areas.
---   * Removed duplicated color conversions: the mask source is
---     converted to YCbCr once and reused by the mask, the early
---     rejection and the redness preview tint, and the center-
---     independent mask term is computed once instead of twice.
+--   * skin_mask is split into skin_mask_pre (center-independent terms)
+--     and skin_mask (the ellipse test), with the mask source converted
+--     to YCbCr once and shared rather than converted inside the mask.
 --   * Considered and rejected: dropping the per-tap spatial weight
 --     array to cut register pressure. It would trade 25 registers for
---     75 added exponentials in the rejection loop, which is a trade
---     rather than a win, so it was left alone pending measurement.
+--     75 added exponentials in the rejection loop, a trade rather than
+--     a win, so it was left alone pending measurement.
+--   * Also corrects the version constant, which still read 1.5.1 in
+--     the v1.5.2 file and so displayed the wrong version in the OBS
+--     filter label.
 --
--- v1.7.0 (2026-08-17)
---   Redness targets visible in the mask preview (debugging aid).
---   * While "Show detection mask" is on, pixels the redness pass is
---     targeting are tinted cyan over the mask. Cyan because green is
---     already the sample box and red the crop guides.
---   * The tint appears only when Redness reduction is above zero, so
---     the preview stays plain black and white when the feature is off.
---   * The tint tracks the gate, not the strength slider, so the
---     targeted footprint stays fully visible while tuning the redness
---     threshold even at low strength.
---   * The gate is now a single shared function used by both the
---     preview and the correction, so what the preview shows and what
---     the filter actually corrects cannot drift apart. No change to
---     correction behavior; this is a refactor plus the tint.
---   * The mask preview help label gained a short clause naming cyan.
---   * The filter type id is deliberately unchanged from v1.6.0, so
---     settings and existing filter instances carry over.
---
--- v1.6.0 (2026-08-17)
---   Redness correction (foundation effect), chroma only.
---   * New "Redness reduction" and "Redness threshold" controls in a
---     Redness group. Red areas on skin (blemish inflammation, rosacea)
---     are pulled back toward the skin tone the sample box already
---     estimates each frame, so no color picker is needed. Defaults to
---     0 strength, so upgrading changes nothing until you raise it.
---   * Why this is not more smoothing: the bilateral kernel spans a few
---     pixels, so it can average away a 1 to 3px blemish but never a
---     patch larger than the kernel, since every sample inside a red
---     patch is also red. Worse, the bilateral treats the color step at
---     a red patch edge as an edge worth preserving, so higher Detail
---     protection actively protects redness. Redness is therefore
---     corrected in chroma space instead of by spatial averaging.
---   * Chroma only: the pixel's own luma is preserved exactly and only
---     Cb/Cr are moved, so shading, contour and facial form survive.
---     This is the difference from DeBlemish's color replace, which
---     lerps full RGB toward a picked color and flattens the face.
---   * Correction is applied along a fitted red axis in CbCr, so only
---     excess red is pulled back; sallow or shadowed areas are never
---     pushed redder. Lips are protected by a luma guard (lips are much
---     darker than sampled skin) plus an upper excess ceiling, both
---     inline TUNING constants in the redness block.
---   * Runs after smoothing and is independent of Smoothing strength,
---     so it works with smoothing at zero.
---
+-- v1.5.2 (2026-08-18)
+--   Added version number to OBS filter label.
 -- v1.5.1 (2026-07-17)
 --   Steadier detection center under movement (spatial robustness, no
 --   new controls). The sample box estimate is now harder to disturb
@@ -191,28 +152,11 @@
 -- and clothing edges are protected even where the mask spills onto them.
 --
 -- Install: OBS Studio > Tools > Scripts > + > select this file.
--- Then add the "SmoothSkin v1.7.1" filter to any video source.
---
--- SIDE BY SIDE WITH v1.5.1
--- This build registers under the id 'filter-smoothskin-v160' instead
--- of the plain 'filter-smoothskin' used by v1.5.1 and earlier, so both
--- scripts can be loaded at once and both appear in the Add Filter
--- list. Load both files under Tools > Scripts and stack them on the
--- same source, then toggle each to compare.
---
--- When done comparing, settle on one build:
---   * To keep v1.6.0 as the permanent filter, either leave the id as
---     is (existing v1.6.0 filter instances keep working, but any old
---     v1.5.1 instances in saved scenes will show as missing once the
---     v1.5.1 script is unloaded), or change the id back to
---     'filter-smoothskin' and unload v1.5.1 first, which lets old
---     scene entries bind to this build instead.
---   * Filter settings do not transfer between the two ids. Each id has
---     its own saved settings per source, so tune whichever you keep.
+-- Then add the "SmoothSkin" filter to any video source.
 
 obs = obslua
 
-VERSION = '1.7.1'
+VERSION = '1.5.3'
 
 SETTING_AMOUNT      = 'Amount'
 SETTING_SIZE        = 'Size'
@@ -221,8 +165,6 @@ SETTING_SENS        = 'Sensitivity'
 SETTING_FEATHER     = 'Feather'
 SETTING_TIGHT       = 'Tightness'
 SETTING_WARMTH      = 'Warmth'
-SETTING_RED         = 'Redness'
-SETTING_REDTHR      = 'RednessThr'
 SETTING_SATGATE     = 'SatGate'
 SETTING_LUMALIMIT   = 'LumaLimit'
 SETTING_SHOWMASK    = 'ShowMask'
@@ -241,12 +183,10 @@ TEXT_SENS       = 'Skin detection range'
 TEXT_FEATHER    = 'Mask feather'
 TEXT_TIGHT      = 'Mask tightness (- tighter / + looser)'
 TEXT_WARMTH     = 'Skin tone warmth trim (- cooler / + warmer)'
-TEXT_RED        = 'Redness reduction'
-TEXT_REDTHR     = 'Redness threshold (- catches milder red / + only strong red)'
 TEXT_SATGATE    = 'Background rejection'
 TEXT_LUMALIMIT  = 'Exclude shadows and highlights'
 TEXT_SHOWMASK   = 'Show detection mask'
-TEXT_MASKINFO   = 'Areas shown in white are where the filter applies the smoothing effect. Black = ignored areas. Cyan = areas targeted for redness correction.'
+TEXT_MASKINFO   = 'Areas shown in white are where the filter applies the smoothing effect. Black = ignored areas.'
 TEXT_BOXX       = 'Sample box: horizontal position'
 TEXT_BOXY       = 'Sample box: vertical position'
 TEXT_BOXSIZE    = 'Sample box: size'
@@ -258,17 +198,15 @@ TEXT_CROPB      = 'From bottom'
 GROUP_PREVIEW   = 'GroupPreview'
 GROUP_SMOOTH    = 'GroupSmoothing'
 GROUP_DETECT    = 'GroupDetection'
-GROUP_RED       = 'GroupRedness'
 GROUP_REGION    = 'GroupRegion'
 
 TEXT_GROUP_PREVIEW = 'Mask preview (setup mode)'
 TEXT_GROUP_SMOOTH  = 'Smoothing'
 TEXT_GROUP_DETECT  = 'Detection'
-TEXT_GROUP_RED     = 'Redness (evens red areas toward your skin tone)'
 TEXT_GROUP_REGION  = 'Region limit (crop inward from each edge)'
 
 source_info = {}
-source_info.id = 'filter-smoothskin-v1-7-1'
+source_info.id = 'filter-smoothskin-v1-5-3'
 source_info.type = obs.OBS_SOURCE_TYPE_FILTER
 source_info.output_flags = obs.OBS_SOURCE_VIDEO
 
@@ -337,8 +275,6 @@ source_info.create = function(settings, source)
     filter.params.Feather     = obs.gs_effect_get_param_by_name(filter.effect, 'Feather')
     filter.params.Tightness   = obs.gs_effect_get_param_by_name(filter.effect, 'Tightness')
     filter.params.Warmth      = obs.gs_effect_get_param_by_name(filter.effect, 'Warmth')
-    filter.params.Redness     = obs.gs_effect_get_param_by_name(filter.effect, 'Redness')
-    filter.params.RednessThr  = obs.gs_effect_get_param_by_name(filter.effect, 'RednessThr')
     filter.params.SatGate     = obs.gs_effect_get_param_by_name(filter.effect, 'SatGate')
     filter.params.LumaLimit   = obs.gs_effect_get_param_by_name(filter.effect, 'LumaLimit')
     filter.params.ShowMask    = obs.gs_effect_get_param_by_name(filter.effect, 'ShowMask')
@@ -397,16 +333,6 @@ source_info.get_properties = function(data)
   obs.obs_properties_add_float_slider(grp_smooth, SETTING_DETAIL, TEXT_DETAIL, 0.0, 1.0, 0.001)
   obs.obs_properties_add_group(props, GROUP_SMOOTH, TEXT_GROUP_SMOOTH, obs.OBS_GROUP_NORMAL, grp_smooth)
 
-  -- Redness group: pulls red areas on skin back toward the skin tone
-  -- the sample box already estimates. Strength defaults to 0, so this
-  -- does nothing until deliberately turned up. Threshold sets how much
-  -- excess red is needed before correction engages, which is what keeps
-  -- natural color variation from being flattened.
-  local grp_red = obs.obs_properties_create()
-  obs.obs_properties_add_float_slider(grp_red, SETTING_RED, TEXT_RED, 0.0, 1.0, 0.001)
-  obs.obs_properties_add_float_slider(grp_red, SETTING_REDTHR, TEXT_REDTHR, 0.0, 1.0, 0.001)
-  obs.obs_properties_add_group(props, GROUP_RED, TEXT_GROUP_RED, obs.OBS_GROUP_NORMAL, grp_red)
-
   -- Detection group: the sample box always sets the skin-tone center
   -- automatically (robust B4 sampling). Mask tightness is the primary
   -- closed-loop knob for how much variation around that center counts
@@ -443,8 +369,6 @@ source_info.get_defaults = function(settings)
   obs.obs_data_set_default_double(settings, SETTING_FEATHER, 0.4)
   obs.obs_data_set_default_double(settings, SETTING_TIGHT, 0.5)
   obs.obs_data_set_default_double(settings, SETTING_WARMTH, 0.0)
-  obs.obs_data_set_default_double(settings, SETTING_RED, 0.0)
-  obs.obs_data_set_default_double(settings, SETTING_REDTHR, 0.5)
   obs.obs_data_set_default_double(settings, SETTING_SATGATE, 0.4)
   obs.obs_data_set_default_bool(settings, SETTING_LUMALIMIT, true)
   obs.obs_data_set_default_bool(settings, SETTING_SHOWMASK, false)
@@ -465,8 +389,6 @@ source_info.update = function(filter, settings)
   filter.Feather     = obs.obs_data_get_double(settings, SETTING_FEATHER)
   filter.Tightness   = obs.obs_data_get_double(settings, SETTING_TIGHT)
   filter.Warmth      = obs.obs_data_get_double(settings, SETTING_WARMTH)
-  filter.Redness     = obs.obs_data_get_double(settings, SETTING_RED)
-  filter.RednessThr  = obs.obs_data_get_double(settings, SETTING_REDTHR)
   filter.SatGate     = obs.obs_data_get_double(settings, SETTING_SATGATE)
   filter.LumaLimit   = obs.obs_data_get_bool(settings, SETTING_LUMALIMIT)
   filter.ShowMask    = obs.obs_data_get_bool(settings, SETTING_SHOWMASK)
@@ -491,8 +413,6 @@ source_info.video_render = function(filter)
   obs.gs_effect_set_float(filter.params.Feather, filter.Feather)
   obs.gs_effect_set_float(filter.params.Tightness, filter.Tightness)
   obs.gs_effect_set_float(filter.params.Warmth, filter.Warmth)
-  obs.gs_effect_set_float(filter.params.Redness, filter.Redness)
-  obs.gs_effect_set_float(filter.params.RednessThr, filter.RednessThr)
   obs.gs_effect_set_float(filter.params.SatGate, filter.SatGate)
   obs.gs_effect_set_bool(filter.params.LumaLimit, filter.LumaLimit)
   obs.gs_effect_set_bool(filter.params.ShowMask, filter.ShowMask)
@@ -514,7 +434,7 @@ source_info.video_tick = function(filter, seconds)
 end
 
 shader = [[
-// SmoothSkin pixel shader v1.7.1
+// SmoothSkin pixel shader v1.5.3
 // Stage 1: skin mask from CbCr chroma distance. The sample box always
 //          sets the detection center automatically with outlier
 //          rejection; warmth trims that center. Mask tightness scales
@@ -527,10 +447,6 @@ shader = [[
 #define ANGLE   0.26179938779   // pi / 12, two rings, 48 samples total
 #define RADIUS  0.0022
 
-// TUNING: red axis in (Cb, Cr), fitted from skin reddening. Skin
-// redness raises Cr and slightly lowers Cb.
-#define RED_AXIS float2(-0.124, 0.992)
-
 uniform float4x4 ViewProj;
 uniform texture2d image;
 
@@ -541,8 +457,6 @@ uniform float Sensitivity;
 uniform float Feather;
 uniform float Tightness;
 uniform float Warmth;
-uniform float Redness;
-uniform float RednessThr;
 uniform float SatGate;
 uniform bool  LumaLimit;
 uniform bool  ShowMask;
@@ -584,61 +498,13 @@ float3 rgb2ycbcr(float3 c)
     return float3(y, cb, cr);
 }
 
-// Inverse of rgb2ycbcr. The multipliers are exact reciprocals of the
-// forward coefficients (1 / 0.713 and 1 / 0.564) rather than the
-// rounded 1.402 / 1.772 constants, so an untouched pixel round-trips
-// to itself. Used by the redness pass to rebuild a pixel after moving
-// only its chroma, leaving luma intact.
-float3 ycbcr2rgb(float3 ycc)
-{
-    float r = ycc.x + (ycc.z - 0.5) * 1.4025245;
-    float b = ycc.x + (ycc.y - 0.5) * 1.7730496;
-    float g = (ycc.x - 0.299 * r - 0.114 * b) / 0.587;
-    return saturate(float3(r, g, b));
-}
-
-// Redness gate. Returns (gate, excess) where gate is 0..1 for how
-// strongly this pixel qualifies as excess redness on skin, and excess
-// is its signed projection onto the red axis.
-//
-// Shared by the correction pass and the setup-mode cyan tint, so what
-// the preview shows and what the filter corrects can never drift apart.
-// Takes an already-converted YCbCr value so callers that already hold
-// one do not pay for the conversion twice.
-float2 redness_gate(float3 ycc, float2 center, float skinY)
-{
-    // TUNING: lips guard. Ratio of pixel luma to sampled skin luma;
-    // below LUMA0 no correction, above LUMA1 full. Lips sit near
-    // 0.5 to 0.65 of skin luma, blemishes and rosacea near 0.85+.
-    // Lower LUMA0 if redness on shadowed skin is being missed.
-    const float LUMA0 = 0.68;
-    const float LUMA1 = 0.82;
-    // TUNING: upper ceiling on excess red, a second line of defence
-    // for very saturated red such as bright lips. Raise both if
-    // severe rosacea is being left uncorrected.
-    const float CEIL0 = 0.115;
-    const float CEIL1 = 0.165;
-
-    float excess = dot(ycc.yz - center, RED_AXIS);
-
-    // Threshold slider maps to a deadzone in chroma units, so mild
-    // natural variation stays untouched.
-    float thr = 0.010 + RednessThr * 0.045;
-
-    float t = smoothstep(thr, thr + 0.015, excess);
-    t *= 1.0 - smoothstep(CEIL0, CEIL1, excess);
-    t *= smoothstep(LUMA0, LUMA1, ycc.x / max(skinY, 0.0001));
-
-    return float2(t, excess);
-}
-
 // Soft skin probability, 0..1, against a given chroma center.
 // Center-independent part of the skin mask: the saturation gate and
 // the optional luma limits. Neither term references the sampled
 // skin-tone center, so a pixel scoring zero here cannot be skin no
 // matter what the sample box reports. Evaluating this first lets the
 // main shader reject most of the frame before paying for the sample
-// box estimator, which is the single most expensive block per pixel.
+// box estimator, which is the most expensive block per pixel.
 float skin_mask_pre(float3 ycc)
 {
     // Saturation gate: skin is never gray. Pixels whose chroma sits
@@ -658,6 +524,8 @@ float skin_mask_pre(float3 ycc)
 
 // Soft skin probability, 0..1. Takes the already-converted YCbCr value
 // and the pre-test result from skin_mask_pre so neither is recomputed.
+// Multiplying by pre at the end is exactly the old evaluation order,
+// so the returned value is unchanged.
 float skin_mask(float3 ycc, float2 center, float pre)
 {
     float2 axes = float2(0.115, 0.095);   // ellipse radii in Cb, Cr
@@ -704,12 +572,11 @@ float4 PassThrough(VertData v_in) : TARGET
     // the sampled center, so a pixel scoring zero here is guaranteed
     // non-skin and would have been returned untouched anyway. Bailing
     // now skips the estimator (25 texture samples and 100 exponentials
-    // per pixel), which most of a typical frame does not need. The
-    // result is bit-identical to evaluating it in the old order.
+    // per pixel), which most of a typical frame does not need. Output
+    // is identical to evaluating these terms in the old order.
     //
-    // The live path only. In setup mode the shader must keep going so
-    // the crop guides and sample box outline still draw over rejected
-    // areas.
+    // Live path only. In setup mode the shader must keep going so the
+    // crop guides and sample box outline still draw over rejected areas.
     float pre = skin_mask_pre(mycc);
 
     if (!ShowMask && (pre <= 0.0005)) return orig;
@@ -776,19 +643,13 @@ float4 PassThrough(VertData v_in) : TARGET
 
     center = est.yz;
 
-    // The same robust estimate also gives the average skin luma, which
-    // the redness pass uses to tell lips (much darker than skin) from
-    // blemishes and rosacea (close to skin luma).
-    float skinY = est.x;
-
     // Warmth trims the sampled center along the warm-cool diagonal for
     // fine adjustment when the auto estimate lands close but not exact.
     center += float2(-Warmth * 0.07, Warmth * 0.07);
 
-    // Build the mask from a lightly averaged sample so single-pixel
-    // noise does not make the mask flicker frame to frame.
-    // (msrc and its YCbCr conversion were computed above, before the
-    // early-out, and the center-independent term is reused as well.)
+    // The mask source, its YCbCr conversion and the center-independent
+    // term were all computed above, before the early-out, so only the
+    // center-dependent ellipse test remains.
     float m = skin_mask(mycc, center, pre);
 
     // Optional region limit, each slider crops inward from its edge
@@ -800,18 +661,6 @@ float4 PassThrough(VertData v_in) : TARGET
     // exist only in this mode and can never reach the live output.
     if (ShowMask) {
         float3 outm = float3(m, m, m);
-
-        // Redness targets tinted cyan. Shown only when Redness
-        // reduction is above zero, so the preview stays plain black and
-        // white when the feature is off. The tint tracks the gate only,
-        // not the strength slider, so the targeted footprint stays
-        // fully visible while tuning the threshold even at low strength.
-        // Cyan is used because green is the sample box and red is the
-        // crop guides.
-        if (Redness > 0.0) {
-            float2 rg = redness_gate(mycc, center, skinY);
-            outm = lerp(outm, float3(0.10, 0.85, 0.95), saturate(rg.x * m));
-        }
 
         // Region limit visualization: the cropped side is tinted
         // transparent red so it is unambiguous which side of each
@@ -842,11 +691,7 @@ float4 PassThrough(VertData v_in) : TARGET
         return float4(outm, 1.0);
     }
 
-    if (m <= 0.001) return orig;
-
-    float3 outc = base;
-
-    if ((Amount > 0.0) && (Size > 0.0)) {
+    if ((m <= 0.001) || (Amount <= 0.0) || (Size <= 0.0)) return orig;
 
     // Edge-preserving bilateral smoothing. Each neighbor is weighted by
     // color similarity to the center pixel, so blemishes and pores are
@@ -895,36 +740,7 @@ float4 PassThrough(VertData v_in) : TARGET
     }
 
     float3 smoothed = acc / wsum;
-    outc = lerp(base, smoothed, saturate(Amount * m));
-
-    }
-
-    // Redness correction, chroma only. Runs on the smoothed result and
-    // is independent of Smoothing strength, so it still works with
-    // smoothing at zero.
-    //
-    // Excess red is measured as a signed projection onto a red axis
-    // fitted in CbCr space: skin redness raises Cr and slightly lowers
-    // Cb. Because the projection is signed, only pixels redder than the
-    // sampled skin tone are pulled back; sallow or shadowed skin has a
-    // negative projection and is never pushed redder.
-    //
-    // Only Cb and Cr move. The pixel keeps its own luma exactly, so
-    // shading, contour and facial form survive and the result reads as
-    // foundation rather than paint.
-    if (Redness > 0.0) {
-        float3 ycc = rgb2ycbcr(outc);
-        float2 rg = redness_gate(ycc, center, skinY);
-
-        float pull = saturate(Redness * rg.x * m);
-
-        // Remove the excess along the red axis only. Chroma variation
-        // perpendicular to that axis is left alone, so the skin keeps
-        // its natural color life instead of going uniform.
-        ycc.yz -= RED_AXIS * rg.y * pull;
-
-        outc = ycbcr2rgb(ycc);
-    }
+    float3 outc = lerp(base, smoothed, saturate(Amount * m));
 
     return float4(outc, orig.a);
 }
